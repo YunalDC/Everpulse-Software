@@ -1,0 +1,318 @@
+-- App.js
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { makeRedirectUri } from 'expo-auth-session';
+import * as Google from 'expo-auth-session/providers/google';
+import Constants from 'expo-constants';
+import { useFonts } from 'expo-font';
+import * as Linking from 'expo-linking';
+import * as SplashScreen from 'expo-splash-screen';
+import * as WebBrowser from 'expo-web-browser';
+import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut } from 'firebase/auth';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, LogBox, View } from 'react-native';
+import { ANDROID_CLIENT_ID, EXPO_CLIENT_ID, IOS_CLIENT_ID, WEB_CLIENT_ID } from './Config';
+import { auth } from './firebaseConfig';
+
+import HomeScreen from './screens/HomeScreen';
+import ProfileScreen from './screens/ProfileScreen';
+import SignInScreen from './screens/SignInScreen';
+import ValveOption from './screens/ValveOption';
+import ValveNonEngineers from './screens/valves/ValveNonEngineers';
+
+LogBox.ignoreLogs(['Constants.platform', 'expo-auth-session']);
+WebBrowser.maybeCompleteAuthSession();
+SplashScreen.preventAutoHideAsync();
+
+const Stack = createNativeStackNavigator();
+
+export default function App() {
+  const [userInfo, setUserInfo] = useState(null);
+  const [appIsReady, setAppIsReady] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState(null);
+
+  useEffect(() => {
+    console.log("App Ownership:", Constants.appOwnership);
+    console.log("Expo Release Channel:", Constants.expoConfig?.releaseChannel);
+    console.log("Expo Project ID:", Constants.expoConfig?.extra?.eas?.projectId);
+    console.log("Firebase API Key:", auth.app.options.apiKey);
+  }, []);
+
+  // Enhanced redirect URI configuration
+  const isExpoGo = Constants.appOwnership === 'expo';
+  const redirectUri = makeRedirectUri({
+    useProxy: isExpoGo,
+    native: isExpoGo ? undefined : 'com.everpulse.calculator://oauthredirect'
+  });
+
+  console.log("Generated Redirect URI:", redirectUri);
+  console.log("App Ownership:", Constants.appOwnership);
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    androidClientId: ANDROID_CLIENT_ID,
+    iosClientId:  IOS_CLIENT_ID,
+    expoClientId: EXPO_CLIENT_ID,
+    webClientId: WEB_CLIENT_ID,
+    redirectUri,
+    scopes: ['openid', 'profile', 'email'],
+    extraParams: {
+      prompt: 'consent',
+      access_type: 'offline'
+    },
+    responseType: 'id_token',
+    clientIdSelection: isExpoGo ? 'expo' : 'device'
+  });
+
+  const [fontsLoaded] = useFonts({
+    SpaceMono: require('./assets/fonts/SpaceMono-Regular.ttf'),
+  });
+
+  const handleDeepLink = useCallback((event) => {
+    if (event.url) {
+      console.log("Deep link received:", event.url);
+      const { queryParams } = Linking.parse(event.url);
+      
+      if (queryParams?.id_token || queryParams?.access_token) {
+        console.log("Authentication tokens found in deep link");
+        const credential = GoogleAuthProvider.credential(
+          queryParams.id_token,
+          queryParams.access_token
+        );
+        
+        signInWithCredential(auth, credential)
+          .then(() => console.log("Signed in via deep link"))
+          .catch(error => {
+            console.error("Deep link sign-in error:", error);
+            Alert.alert("Authentication Error", error.message);
+          });
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+    Linking.getInitialURL().then(url => {
+      if (url) handleDeepLink({ url });
+    });
+    return () => subscription.remove();
+  }, [handleDeepLink]);
+
+  // Auth state persistence
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("User signed in:", user.email);
+        setUserInfo(user);
+      } else {
+        console.log("User signed out");
+        setUserInfo(null);
+      }
+      setIsAuthLoading(false);
+      setAuthError(null);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Unified auth response handler
+  useEffect(() => {
+    if (response?.type === 'success') {
+      setIsAuthLoading(true);
+      
+      // Handle all success cases
+      if (response.params?.id_token) {
+        // Standalone app flow
+        const credential = GoogleAuthProvider.credential(response.params.id_token);
+        signInWithCredential(auth, credential)
+          .catch(handleAuthError);
+      } 
+      else if (response.authentication?.accessToken) {
+        // Expo Go proxy flow
+        const credential = GoogleAuthProvider.credential(
+          null,
+          response.authentication.accessToken
+        );
+        signInWithCredential(auth, credential)
+          .catch(handleAuthError);
+      } 
+      else {
+        console.error("Unhandled auth response:", response);
+        setAuthError("Authentication failed: Invalid response");
+        setIsAuthLoading(false);
+      }
+    } 
+    else if (response?.type === 'error') {
+      handleAuthError(response.error);
+    }
+    
+    function handleAuthError(error) {
+      console.error('Authentication error:', error);
+      const errorMsg = error.message || error;
+      setAuthError(errorMsg);
+      setIsAuthLoading(false);
+      Alert.alert(
+        "Authentication Failed",
+        errorMsg,
+        [{ text: "OK" }]
+      );
+    }
+  }, [response]);
+
+  // Handle sign out
+  const handleSignOut = () => {
+    signOut(auth).catch(error => {
+      Alert.alert("Sign Out Error", error.message);
+    });
+  };
+
+  // App preparation
+  useEffect(() => {
+    async function prepare() {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } finally {
+        setAppIsReady(true);
+      }
+    }
+    prepare();
+  }, []);
+
+  const onLayoutRootView = useCallback(async () => {
+    if (appIsReady && fontsLoaded) {
+      await SplashScreen.hideAsync();
+    }
+  }, [appIsReady, fontsLoaded]);
+
+  if (!appIsReady || !fontsLoaded) return null;
+
+  return (
+    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <NavigationContainer>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {userInfo ? (
+            <>
+              <Stack.Screen name="Home">
+                {(props) => <HomeScreen {...props} userInfo={userInfo} signOut={handleSignOut} />}
+              </Stack.Screen>
+              <Stack.Screen name="ProfileScreen" options={{ headerShown: true, title: 'Profile' }}>
+                {(props) => <ProfileScreen {...props} userInfo={userInfo} signOut={handleSignOut} />}
+              </Stack.Screen>
+              <Stack.Screen name="ValveOption" options={{ headerShown: true, title: 'Valve Options' }}>
+                {(props) => <ValveOption />}
+              </Stack.Screen>
+              <Stack.Screen name="ValveNonEngineers" options={{ headerShown: true, title: 'Valve Calculator' }}>
+                {(props) => <ValveNonEngineers />}
+              </Stack.Screen>
+            </>
+          ) : (
+            <Stack.Screen name="SignIn">
+              {(props) => (
+                <SignInScreen 
+                  {...props} 
+                  promptAsync={promptAsync} 
+                  isDisabled={!request || isAuthLoading} 
+                  authError={authError}
+                />
+              )}
+            </Stack.Screen>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </View>
+  );
+}
+
+--signInScreen.js
+import { AntDesign } from '@expo/vector-icons';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+export default function SignInScreen({ promptAsync, isDisabled, authError }) {
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Welcome to Everpulse</Text>
+      
+      <TouchableOpacity 
+        style={[styles.button, isDisabled && styles.disabledButton]}
+        onPress={() => promptAsync()}
+        disabled={isDisabled}
+      >
+        <AntDesign name="google" size={24} color="white" style={styles.icon} />
+        {isDisabled ? (
+          <ActivityIndicator color="white" size="small" />
+        ) : (
+          <Text style={styles.buttonText}>Sign in with Google</Text>
+        )}
+      </TouchableOpacity>
+      
+      {(isDisabled || authError) && (
+        <View style={styles.messageContainer}>
+          {isDisabled && !authError && (
+            <Text style={styles.helpText}>
+              Loading authentication service... If this takes too long, 
+              check your internet connection
+            </Text>
+          )}
+          
+          {authError && (
+            <Text style={styles.errorText}>
+              {authError}
+            </Text>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 20
+  },
+  title: { 
+    fontSize: 24, 
+    marginBottom: 40,
+    fontWeight: '600',
+    color: '#333'
+  },
+  button: { 
+    backgroundColor: '#4285F4', 
+    padding: 15,
+    borderRadius: 8,
+    minWidth: 240,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  disabledButton: {
+    backgroundColor: '#9aa9f2',
+  },
+  icon: {
+    marginRight: 10,
+  },
+  buttonText: { 
+    color: 'white', 
+    fontWeight: 'bold',
+    fontSize: 16
+  },
+  messageContainer: {
+    marginTop: 30,
+    maxWidth: 300,
+  },
+  helpText: {
+    textAlign: 'center',
+    color: '#666',
+    lineHeight: 20,
+    fontStyle: 'italic',
+    marginBottom: 10,
+  },
+  errorText: {
+    textAlign: 'center',
+    color: '#d32f2f',
+    lineHeight: 20,
+    fontWeight: 'bold',
+  }
+});

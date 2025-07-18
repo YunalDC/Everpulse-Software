@@ -1,0 +1,73 @@
+{
+  "expo": {
+    "name": "EverpulseCalculationApp",
+    "slug": "EverpulseCalculationApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "com.everpulse.calculator",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A3819"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.everpulse.calculator",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.everpulse.calculator"
+            ]
+          }
+        ]
+      },
+      "buildNumber": "6"
+    },
+    "android": {
+      "package": "com.everpulse.calculator",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#1A3819"
+      },
+      "edgeToEdgeEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "com.everpulse.calculator",
+              "host": "oauthredirect"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-splash-screen",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "af59b3a5-9535-49a7-903e-bffb7e18a68a"
+      }
+    },
+    "owner": "everboltit"
+  }
+}
